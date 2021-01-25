@@ -1,0 +1,160 @@
+---
+title: "The health and economic effects of extreme storm events in the United States"
+author: "Jim Milks"
+date: "1/22/2021"
+output: html_document
+---
+
+## Synopsis
+Severe storms cause both public health and economic damage. This analysis uses the storm database from the National Oceanic and Atmospheric Administration to answer two questions. First, what type of storm event causes the greatest health damage? Second, what type of storm event causes the greatest economic damage.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(pander)
+```
+
+## Data Processing
+
+I downloaded the source data file then imported it into R.
+
+```{r, Load and examine data}
+if (!file.exists("StormData.csv.bz2")) {
+        fileUrl <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+        download.file(fileUrl, destfile = "StormData.csv.bz2", method = "curl")
+}
+storm <- read.csv("StormData.csv.bz2", header = T)
+str(storm)
+```
+
+The dataset consists of `r dim(storm)[1]` observations in `r dim(storm)[2]` columns. I reformatted several columns, including the BGN_DATE into a date format, and STATE, COUNTYNAME, and ENVTYPE into factors to ensure correct treatment of those variables in statistical analysis and graphics. I then extracted the year variable, selected for events with known damages and fatalities, and created a bar plot of the storm events causing health and/or property damage per year. 
+
+```{r, Transform and select only storm events with damage/fatality estimates}
+storm$BGN_DATE <- as.Date(storm$BGN_DATE, format = "%m/%d/%Y")
+storm$STATE <- as.factor(storm$STATE)
+storm$COUNTYNAME <- as.factor(storm$COUNTYNAME)
+storm$EVTYPE <- as.factor(storm$EVTYPE)
+storm$year <- year(storm$BGN_DATE)
+storm_sub <- subset(storm, FATALITIES > 0 | INJURIES > 0 | PROPDMG > 0 | CROPDMG > 0)
+storms_per_year <- storm_sub %>% count(year)
+```
+```{r, bar plot, fig.cap = "Figure 1. Number of known storms causing casualties and/or property damage in the USA 1950 - 2011. The number of storms jumped in 1993 and again in 1994, likely due to better reporting of such storms."}
+ggplot(data = storms_per_year, aes(x = year, y = n)) +
+        geom_bar(stat = "identity", fill = "blue") +
+        labs(x = "Year",
+             y = "Number of known storms")
+```
+```{r, subset since 1993}
+storms_1993 <- subset(storm_sub, year >= 1993)
+```
+
+Given the increase in known storms in 1993 due to better reporting, I limited my analysis to storms since 1993 when doing comparisons between types of storms in terms of casualties and property damage. This reduced the number of observations from `r dim(storm)[1]` in the original data set to `r dim(storms_1993)[1]`.
+
+I then checked for NAs in the data set.
+
+```{r, check Fatalities column for NA}
+sum(is.na(storms_1993$FATALITIES))
+```
+```{r, check Injuries column for NA}
+sum(is.na(storms_1993$INJURIES))
+```
+```{r, check PROPDMG column for NA}
+sum(is.na(storms_1993$PROPDMG))
+```
+```{r, check CROPDMG column for NA}
+sum(is.na(storms_1993$CROPDMG))
+```
+```{r, check PROPDMGEXP for NA}
+sum(is.na(storms_1993$PROPDMGEXP))
+```
+```{r, check CROPDMGEXP for NA}
+sum(is.na(storms_1993$CROPDMGEXP))
+```
+
+Finally, there are 985 event types listed in the data set.
+
+```{r, table of major storm types}
+sort(table(storms_1993$EVTYPE), decreasing = TRUE)[1:30]
+```
+I grouped several similar types together. For example, TSTM WIND, THUNDERSTORM WIND, HIGH WIND, THUNDERSTORM WINDS and other wind events were grouped together as "Wind".
+
+```{r, Group storm events by type}
+storms_1993$type <- "other"
+storms_1993$type[grep("WIND", storms_1993$EVTYPE, ignore.case = TRUE)] <- "Wind"
+storms_1993$type[grep("FLOOD", storms_1993$EVTYPE, ignore.case = TRUE)] <- "Flood"
+storms_1993$type[grep("HURRICANE", storms_1993$EVTYPE, ignore.case = TRUE)] <- "Tropical Cyclone"
+storms_1993$type[grep("SNOW", storms_1993$EVTYPE, ignore.case = TRUE)] <- "Winter Storm"
+storms_1993$type[grep("HEAT", storms_1993$EVTYPE, ignore.case = TRUE)] <- "Heat"
+storms_1993$type[grep("HAIL", storms_1993$EVTYPE, ignore.case = TRUE)] <- "Hail"
+storms_1993$type[grep("TORNADO", storms_1993$EVTYPE, ignore.case = TRUE)] <- "Tornado"
+storms_1993$type[grep("RAIN", storms_1993$EVTYPE, ignore.case = TRUE)] <- "Rain"
+storms_1993$type[grep("WIND", storms_1993$EVTYPE, ignore.case = TRUE)] <- "Wind"
+storms_1993$type[grep("TROPICAL", storms_1993$EVTYPE, ignore.case = TRUE)] <- "Tropical Cyclone"
+storms_1993$type[grep("WINTER", storms_1993$EVTYPE, ignore.case = TRUE)] <- "Winter Storm"
+storms_1993$type[grep("FIRE", storms_1993$EVTYPE, ignore.case = TRUE)] <- "Wildfire"
+storms_1993$type[grep("LIGHTNING", storms_1993$EVTYPE, ignore.case = TRUE)] <- "Lightning"
+storms_1993$type[grep("AVALANCHE", storms_1993$EVTYPE, ignore.case = TRUE)] <- "Avalanche"
+storms_1993$type[grep("ICE", storms_1993$EVTYPE, ignore.case = TRUE)] <- "Winter Storm"
+storms_1993$type[grep("BLIZZARD", storms_1993$EVTYPE, ignore.case = TRUE)] <- "Winter Storm"
+sort(table(storms_1993$type), decreasing = TRUE)[1:12]
+```
+
+Finally, I converted PROPDMGEXP and CROPDMGEXP to units of dollars using the metadata in [National Weather Service Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf).
+```{r, PROPDMGEXP}
+sort(table(storms_1993$PROPDMGEXP), decreasing = TRUE)
+```
+```{r, CROPDMGEXP}
+sort(table(storms_1993$CROPDMGEXP), decreasing = TRUE)
+```
+
+Conversions are as follow:
+* K or k = 1,000 dollars
+* M or m = 1,000,000 dollars
+* B or b = 1,000,000,000 dollars
+* Anything else is 1 dollar
+
+```{r, unit conversions}
+storms_1993$PROPDMGEXP[is.na(storms_1993$PROPDMGEXP)] <- 1
+storms_1993$PROPDMGEXP[!grepl("K|M|B", storms_1993$PROPDMGEXP, ignore.case = TRUE)] <- 1
+storms_1993$PROPDMGEXP[grep("K", storms_1993$PROPDMGEXP, ignore.case = TRUE)] <- 1000
+storms_1993$PROPDMGEXP[grep("M", storms_1993$PROPDMGEXP, ignore.case = TRUE)] <- 1000000
+storms_1993$PROPDMGEXP[grep("B", storms_1993$PROPDMGEXP, ignore.case = TRUE)] <- 1000000000
+storms_1993$PROPDMGEXP <- as.numeric(storms_1993$PROPDMGEXP)
+storms_1993$property <- storms_1993$PROPDMG * storms_1993$PROPDMGEXP
+
+storms_1993$CROPDMGEXP[is.na(storms_1993$PROPDMGEXP)] <- 1
+storms_1993$CROPDMGEXP[!grepl("K|M|B", storms_1993$CROPDMGEXP, ignore.case = TRUE)] <- 1
+storms_1993$CROPDMGEXP[grep("K", storms_1993$CROPDMGEXP, ignore.case = TRUE)] <- 1000
+storms_1993$CROPDMGEXP[grep("M", storms_1993$CROPDMGEXP, ignore.case = TRUE)] <- 1000000
+storms_1993$CROPDMGEXP[grep("B", storms_1993$CROPDMGEXP, ignore.case = TRUE)] <- 1000000000
+storms_1993$CROPDMGEXP <- as.numeric(storms_1993$CROPDMGEXP)
+storms_1993$crop <- storms_1993$CROPDMG * storms_1993$CROPDMGEXP
+```
+
+## Results
+
+```{r, Casualties per year by storm type, fig.cap = "Figure 2. Total deaths and injuries caused by different types of storms 1993 - 2011."}
+storms_1993$casualties <- storms_1993$INJURIES + storms_1993$FATALITIES
+Casualties_per_type <- storms_1993 %>% group_by(type) %>% summarize(sum = sum(casualties))
+ggplot(Casualties_per_type, aes(x = type, y = sum)) +
+        geom_bar(stat = "identity", fill = "red") +
+        coord_flip() +
+        labs(x = "Storm Event",
+             y = "Casualties")
+```
+
+The data show that tornadoes (`r Casualties_per_type[9,2]` casualties) have caused over twice as many injuries and fatalities between 1993 and 2011 as the next highest category (heatwaves at `r Casualties_per_type[4,2]`)
+
+```{r, Economic damage per year per storm type, fig.cap = "Figure 3. Total property and crop losses in dollars of different storm types 1993 - 2011."}
+storms_1993$economic <- storms_1993$property + storms_1993$crop
+Economic_damage <- storms_1993 %>% group_by(type) %>% summarize(sum = sum(economic))
+ggplot(Economic_damage, aes(x = type, y = sum)) +
+        geom_bar(stat = "identity", fill = "green") +
+        coord_flip() +
+        labs(x = "Storm type",
+             y = "Damages (dollars)")
+```
+
+The data shows that flood damage, at `r Economic_damage[2,2]`, caused more economic losses than tropical cyclones (`r Economic_damage[9,2]`) between 1993 and 2001.
